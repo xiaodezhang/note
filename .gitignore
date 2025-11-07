@@ -227,3 +227,4 @@ driver/*
 net/*
 movies/*
 audio.json
+*.mp3

@@ -1,6 +1,6 @@
 import json
 from datetime import datetime
-from pydub import AudioSegment
+import soundfile as sf
 import sounddevice as sd
 import numpy as np
 from loguru import logger
@@ -182,26 +182,31 @@ class PlayerWidget(QWidget):
     next_clicked = Signal()
     def __init__(self):
         super().__init__()
-        self._start_time = None
-        self._paused_duraiton = 0
         self._stream = None
 
         layout = QHBoxLayout(self)
         self._play_pause_button = PlayPauseButton(self)
         self._next_button = QPushButton('下一句')
+        self._current_button = QPushButton('播放当前语句')
+        self._current_slow_button = QPushButton('播放当前语句(0.5倍速)')
 
         layout.addWidget(self._play_pause_button)
+        layout.addWidget(self._current_button)
+        layout.addWidget(self._current_slow_button)
         layout.addWidget(self._next_button)
 
         self._play_pause_button.toggled.connect(lambda: self.toggle_play())
         self._next_button.clicked.connect(self._on_next)
+        # self._current_button.clicked.connect(self._on_current)
 
     def _on_next(self):
-        if not self.playing:
+        self.next_clicked.emit()
+
+    def play_at(self, sec):
+        self._position = sec * self._samplerate
+        if not self._playing:
             logger.debug('toggle_play')
             self.toggle_play()
-
-        self.next_clicked.emit()
 
     @property
     def audio_file(self):
@@ -211,67 +216,58 @@ class PlayerWidget(QWidget):
     @audio_file.setter
     def audio_file(self, value):
         self._audio_file = value
-        # 音频处理
-        self.audio = AudioSegment.from_mp3(self._audio_file).set_channels(1)
-        self.samplerate = self.audio.frame_rate
-        self.data = np.array(self.audio.get_array_of_samples(), dtype=np.float32) / 32768.0
+
+        self._data, self._samplerate = sf.read(value)
 
         # 音频流
         self._stream = None
-        self.playing = False
+        self._playing = False
         self._position = 0  # 当前播放样本索引
-        self.speed = 1
-        self.start_sample = 0
-        self.end_sample = len(self.data)
 
     # 音频回调
-    def audio_callback(self, outdata, frames, t, status):
-        # logger.debug(f'playing: {self.playing}, end_pos: {int(self.position + frames)}, end_sample: {self.end_sample}')
-        if not self.playing:
+    def audio_callback(self, outdata, frames, time, status):
+        if status:
+            print(status)
+
+        if not self._playing:
             outdata.fill(0)
             return
-        end_pos = int(self._position + frames)
-        if end_pos >= self.end_sample:
-            indices = np.arange(self._position, self.end_sample, self.speed).astype(np.int32)
-            outdata[:len(indices),0] = self.data[indices]
-            outdata[len(indices):] = 0
-            self.playing = False
-            return
 
-        indices = np.arange(self._position, end_pos, self.speed).astype(np.int32)
-        outdata[:,0] = self.data[indices]
-        self._position = end_pos
-        # logger.debug(f'indices: {indices}, position: {end_pos}')
+        start = int(self._position)
+        # target_data = self.data_slow if self.slow else self.data
+        target_data = self._data
+        end = start + frames
+        if end > len(target_data):
+            outdata[:len(target_data)-start] = target_data[start:]
+            outdata[len(target_data)-start:] = 0
+            self._position = len(target_data)
+            raise sd.CallbackStop()
+        else:
+            outdata[:] = target_data[start:end]
+            self._position += frames
 
-        if self._start_time == None:
-            self._start_time = t.currentTime
-
-        elapsed = t.currentTime - self._start_time - self._paused_duraiton
+        elapsed = start / self._samplerate
         self.playing_progress.emit(elapsed)
-        # logger.debug(f'elapsed: {elapsed}')
 
     # 播放/暂停
     def toggle_play(self):
-        if self.playing:
-            self.playing = False
+        if self._playing:
+            self._playing = False
             assert self._stream
             self._paused_start = self._stream.time
 
         else:
             if self._stream is None:
+                channels = self._data.shape[1] if self._data.ndim > 1 else 1
                 self._stream = sd.OutputStream(
-                    samplerate=self.samplerate,
-                    channels=1,
+                    samplerate=self._samplerate,
+                    channels=channels,
                     callback=self.audio_callback,
                     blocksize=2 ** 5
                 )
                 self._stream.start()
 
-            else:
-                self._paused_duraiton += self._stream.time - self._paused_start
-                # logger.debug(f'duration: {self._paused_duraiton}')
-
-            self.playing = True
+            self._playing = True
 
     def stop(self):
         if self._stream is not None:
@@ -331,6 +327,9 @@ class MainWindow(QWidget):
     def _on_next(self):
         self._next_flag = True
         self._lyric_widget.current_index += 1
+        segment = self._lyrics[self._lyric_widget.current_index + 1]
+        self._player_widget.play_at(segment['start'])
+        logger.debug(f'start: {segment["start"]}, current: {self._lyric_widget.current_index}')
 
     def _on_playing(self, elapsed):
         if self._lyrics:
@@ -338,6 +337,11 @@ class MainWindow(QWidget):
             next_seg = self._lyrics[self._lyric_widget.current_index + 1]
             self._last_end = seg['end'] + (next_seg['start'] - seg['end']) * 0.5
             self._next_start = next_seg['start']
+
+            logger.debug(f'seg end: {seg["end"]}, next start: {next_seg["start"]}')
+
+
+            logger.debug(f'elapsed: {elapsed}, last_end: {self._last_end}, current_index: {self._lyric_widget.current_index}')
 
             # logger.debug(f'current_index: {self._lyric_widget.current_index}')
 
@@ -347,8 +351,8 @@ class MainWindow(QWidget):
                     logger.debug(f'toggle_play')
                     self._next_flag = False
 
-            if elapsed > self._next_start:
-                self._lyric_widget.current_index += 1
+            # if elapsed > self._next_start:
+            #     self._lyric_widget.current_index += 1
 
         # for i, seg in enumerate(self._lyrics):
         #     if elapsed >= seg['start'] and elapsed <= seg['end']:
