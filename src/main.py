@@ -327,9 +327,9 @@ class MainWindow(QWidget):
     def _on_next(self):
         self._next_flag = True
         self._lyric_widget.current_index += 1
-        segment = self._lyrics[self._lyric_widget.current_index + 1]
+        segment = self._lyrics[self._lyric_widget.current_index]
         self._player_widget.play_at(segment['start'])
-        logger.debug(f'start: {segment["start"]}, current: {self._lyric_widget.current_index}')
+        # logger.debug(f'start: {segment["start"]}, current: {self._lyric_widget.current_index}')
 
     def _on_playing(self, elapsed):
         if self._lyrics:
@@ -338,21 +338,21 @@ class MainWindow(QWidget):
             self._last_end = seg['end'] + (next_seg['start'] - seg['end']) * 0.5
             self._next_start = next_seg['start']
 
-            logger.debug(f'seg end: {seg["end"]}, next start: {next_seg["start"]}')
+            # logger.debug(f'seg end: {seg["end"]}, next start: {next_seg["start"]}')
 
 
-            logger.debug(f'elapsed: {elapsed}, last_end: {self._last_end}, current_index: {self._lyric_widget.current_index}')
+            # logger.debug(f'elapsed: {elapsed}, last_end: {self._last_end}, current_index: {self._lyric_widget.current_index}')
 
             # logger.debug(f'current_index: {self._lyric_widget.current_index}')
 
             if elapsed > self._last_end:
                 if self._next_flag:
                     self._player_widget.toggle_play()
-                    logger.debug(f'toggle_play')
+                    # logger.debug(f'toggle_play')
                     self._next_flag = False
 
-            # if elapsed > self._next_start:
-            #     self._lyric_widget.current_index += 1
+            if elapsed > self._next_start:
+                self._lyric_widget.current_index += 1
 
         # for i, seg in enumerate(self._lyrics):
         #     if elapsed >= seg['start'] and elapsed <= seg['end']:
