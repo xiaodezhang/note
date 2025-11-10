@@ -31,7 +31,7 @@ def get_file_sha256(file_path):
     return sha256.hexdigest()
 
 def to_slow_audio(path: Path):
-    y, sp = librosa.load(path, sr=None, mono=False)
+    y, sp = librosa.load(path, sr=None)
     y_slow = librosa.effects.time_stretch(y, rate=0.5)
     sf.write(path.parent / (path.stem + 'slow.wav'), y_slow, sp)
 
@@ -431,38 +431,31 @@ class MainWindow(QWidget):
 
     def _on_playing(self, elapsed, slow):
         if self._lyrics:
-            seg = self._lyrics[self._lyric_widget.current_index]
-            next_seg = self._lyrics[self._lyric_widget.current_index + 1]
+            current = self._lyric_widget.current_index
+            if current < len(self._lyrics) - 1:
+                seg = self._lyrics[current]
+                next_seg = self._lyrics[self._lyric_widget.current_index + 1]
 
-            if slow:
-                self._last_end = next_seg['start'] + seg['end']
-                self._next_start = next_seg['start'] * 2
+                if slow:
+                    self._last_end = next_seg['start'] + seg['end']
+                    self._next_start = next_seg['start'] * 2
+
+                else:
+                    self._last_end = (next_seg['start'] + seg['end']) * 0.5
+                    self._next_start = next_seg['start']
+
+                if elapsed > self._last_end:
+                    if self._segment_flag:
+                        self._player_widget.toggle_play()
+                        # logger.debug(f'toggle_play')
+                        self._segment_flag = False
+
+                if elapsed > self._next_start:
+                    self._lyric_widget.current_index += 1
 
             else:
-                self._last_end = (next_seg['start'] + seg['end']) * 0.5
-                self._next_start = next_seg['start']
+                self._player_widget.toggle_play()
 
-            # logger.debug(f'seg end: {seg["end"]}, next start: {next_seg["start"]}')
-
-
-            # logger.debug(f'elapsed: {elapsed}, last_end: {self._last_end}, current_index: {self._lyric_widget.current_index}')
-
-            # logger.debug(f'current_index: {self._lyric_widget.current_index}')
-
-            if elapsed > self._last_end:
-                if self._segment_flag:
-                    self._player_widget.toggle_play()
-                    # logger.debug(f'toggle_play')
-                    self._segment_flag = False
-
-            if elapsed > self._next_start:
-                self._lyric_widget.current_index += 1
-
-        # for i, seg in enumerate(self._lyrics):
-        #     if elapsed >= seg['start'] and elapsed <= seg['end']:
-        #         self._lyric_widget.current_index = i
-        #         self._last_end = seg['end']
-        #         break
 
     def _on_extract_finished(self, file, lyrics):
         self._progress.hide()
