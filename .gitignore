@@ -228,3 +228,4 @@ net/*
 movies/*
 audio.json
 *.mp3
+*.wav

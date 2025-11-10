@@ -1,16 +1,25 @@
 import json
-from datetime import datetime
+import librosa
+from pathlib import Path
 import soundfile as sf
 import sounddevice as sd
-import numpy as np
 from loguru import logger
-from PySide6.QtWidgets import QApplication, QFileDialog, QHBoxLayout, QProgressBar, QPushButton, QSizePolicy, QToolButton, QWidget, QLabel, QVBoxLayout
-from PySide6.QtCore import QSize, QThread, Qt, QTimer, Signal
+from PySide6.QtWidgets import QApplication, QFileDialog, QHBoxLayout, QProgressBar, QPushButton, QSizePolicy, QToolButton, QWidget, QVBoxLayout
+from PySide6.QtCore import QObject, QSize, QThread, Qt, QTimer, Signal
 from PySide6.QtGui import QFont, QColor, QFontMetrics, QIcon, QPainter
 import sys
 import whisperx
 import torch
 import hashlib
+from qt_material import apply_stylesheet
+
+def url(path):
+    theme = 'light'
+    return str(Path('image') / theme / path)
+
+def get_slow_file(file: str) -> Path:
+    f = Path(file)
+    return f.parent / (f.stem + 'slow.wav')
 
 def get_file_sha256(file_path):
     sha256 = hashlib.sha256()
@@ -20,6 +29,11 @@ def get_file_sha256(file_path):
         for chunk in iter(lambda: f.read(8192), b""):
             sha256.update(chunk)
     return sha256.hexdigest()
+
+def to_slow_audio(path: Path):
+    y, sp = librosa.load(path, sr=None, mono=False)
+    y_slow = librosa.effects.time_stretch(y, rate=0.5)
+    sf.write(path.parent / (path.stem + 'slow.wav'), y_slow, sp)
 
 def audio_to_lyric(path):
     # 1. 自动检测设备
@@ -49,9 +63,9 @@ def audio_to_lyric(path):
     return aligned_result['segments']
 
 class LyricWidget(QWidget):
-    def __init__(self, lyrics, parent=None):
+    def __init__(self, parent=None):
         super().__init__(parent)
-        self._lyrics = lyrics
+        self._lyrics = []
         self._current_index = 0
 
         self.line_height = 30
@@ -120,109 +134,108 @@ class LyricWidget(QWidget):
         # logger.warning(f'PAINT BEGIN, current_index: {self._current_index}----------------------------------------------')
         self._calculate_overlays()
 
-        current_overlay = self._overlays[self._current_index]
-        for i, (line, overlay) in enumerate(zip(self._lyrics, self._overlays)):
-            y = (overlay - current_overlay) * self.line_height + self.height() // 2
-            if 0 <= y <= self.rect().height():
-                visiable = True
-
-            else:
-                visiable = False
-
-            if i == self._current_index:
-                painter.setPen(QColor("red"))
-                # font = QFont("Arial", 14, QFont.Weight.Bold)
-                font = QFont("Arial", 12)
-            else:
-                painter.setPen(QColor("black"))
-                font = QFont("Arial", 12)
-
-            painter.setFont(font)
-
-            fm = QFontMetrics(font)
-            row = ''
-            row_overlay = 0
-            for w in line['words']:
-                ch = w['word']
-                if fm.horizontalAdvance(row+ ch) > self.rect().width() -10:
-                    # y = (i - self._current_index + overlay + row_overlay) * self.line_height + self.height() // 2
-                    y = (overlay - current_overlay + row_overlay) * self.line_height + self.height() // 2
-                    if visiable:
-                        painter.drawText(10, int(y + self.line_height*0.8), row)
-                        # logger.debug(f'overlay: {overlay}, row_overlay: {row_overlay}, current_overlay: {current_overlay}, i: {i}, y: {overlay - current_overlay + row_overlay}, text: {row}')
-                    row = ch + ' '
-                    row_overlay += 1
+        if self._overlays:
+            current_overlay = self._overlays[self._current_index]
+            for i, (line, overlay) in enumerate(zip(self._lyrics, self._overlays)):
+                y = (overlay - current_overlay) * self.line_height + self.height() // 2
+                if 0 <= y <= self.rect().height():
+                    visiable = True
 
                 else:
-                    row += ch + ' '
+                    visiable = False
 
-            if row:
-                if visiable:
-                    # y = (i - self._current_index + overlay + row_overlay) * self.line_height + self.height() // 2
-                    y = (overlay - current_overlay + row_overlay) * self.line_height + self.height() // 2
-                    painter.drawText(10, int(y + self.line_height*0.8), row)
+                if i == self._current_index:
+                    painter.setPen(QColor("red"))
+                    # font = QFont("Arial", 14, QFont.Weight.Bold)
+                    font = QFont("Arial", 12)
+                else:
+                    painter.setPen(QColor("black"))
+                    font = QFont("Arial", 12)
+
+                painter.setFont(font)
+
+                fm = QFontMetrics(font)
+                row = ''
+                row_overlay = 0
+                for w in line['words']:
+                    ch = w['word']
+                    if fm.horizontalAdvance(row+ ch) > self.rect().width() -10:
+                        # y = (i - self._current_index + overlay + row_overlay) * self.line_height + self.height() // 2
+                        y = (overlay - current_overlay + row_overlay) * self.line_height + self.height() // 2
+                        if visiable:
+                            painter.drawText(10, int(y + self.line_height*0.8), row)
+                            # logger.debug(f'overlay: {overlay}, row_overlay: {row_overlay}, current_overlay: {current_overlay}, i: {i}, y: {overlay - current_overlay + row_overlay}, text: {row}')
+                        row = ch + ' '
+                        row_overlay += 1
+
+                    else:
+                        row += ch + ' '
+
+                if row:
+                    if visiable:
+                        # y = (i - self._current_index + overlay + row_overlay) * self.line_height + self.height() // 2
+                        y = (overlay - current_overlay + row_overlay) * self.line_height + self.height() // 2
+                        painter.drawText(10, int(y + self.line_height*0.8), row)
                     # logger.debug(f'overlay: {overlay}, row_overlay: {row_overlay}, current_overlay: {current_overlay}, i: {i}, y: {overlay - current_overlay + row_overlay}, text: {row}')
 
 
-class PlayPauseButton(QToolButton):
-    def __init__(self, parent=None):
+class Button(QToolButton):
+    def __init__(self, path, parent=None):
         super().__init__(parent)
+        self.setAutoRaise(True)
+        self.setIconSize(QSize(32, 32))
+        self.setIcon(QIcon(url(path)))
+
+class CheckedButton(QToolButton):
+    def __init__(self, path1, path2, parent=None):
+        super().__init__(parent)
+        self._path1 = path1
+        self._path2 = path2
         self.setCheckable(True)
         self.setAutoRaise(True)
         self.setIconSize(QSize(32, 32))
+
         self.update_icon()
-        self.clicked.connect(self.update_icon)
+        self.toggled.connect(self.update_icon)
 
     def update_icon(self):
-        icon = QIcon("image/light/pause_circle.svg") if self.isChecked() else QIcon("image/light/play_circle.svg")
+        icon = QIcon(url(self._path1)) if self.isChecked() else QIcon(url(self._path2))
         self.setIcon(icon)
 
-class PlayerWidget(QWidget):
+class Stream(QObject):
     playing_progress = Signal(float)
-    next_clicked = Signal()
+    playing_changed = Signal(bool)
     def __init__(self):
         super().__init__()
         self._stream = None
+        self._playing = False
+        self._position = 0  # 当前播放样本索引
 
-        layout = QHBoxLayout(self)
-        self._play_pause_button = PlayPauseButton(self)
-        self._next_button = QPushButton('下一句')
-        self._current_button = QPushButton('播放当前语句')
-        self._current_slow_button = QPushButton('播放当前语句(0.5倍速)')
-
-        layout.addWidget(self._play_pause_button)
-        layout.addWidget(self._current_button)
-        layout.addWidget(self._current_slow_button)
-        layout.addWidget(self._next_button)
-
-        self._play_pause_button.toggled.connect(lambda: self.toggle_play())
-        self._next_button.clicked.connect(self._on_next)
-        # self._current_button.clicked.connect(self._on_current)
-
-    def _on_next(self):
-        self.next_clicked.emit()
-
-    def play_at(self, sec):
-        self._position = sec * self._samplerate
-        if not self._playing:
-            logger.debug('toggle_play')
-            self.toggle_play()
-
-    @property
-    def audio_file(self):
-        """The audio_file property."""
-        return self._audio_file
-
-    @audio_file.setter
-    def audio_file(self, value):
-        self._audio_file = value
-
+    def set_audio_file(self, value):
         self._data, self._samplerate = sf.read(value)
 
         # 音频流
         self._stream = None
         self._playing = False
         self._position = 0  # 当前播放样本索引
+    def play_at(self, sec):
+        self._position = sec * self._samplerate
+        if not self._playing:
+            # logger.debug('toggle_play')
+            self.toggle_play()
+
+    @property
+    def playing(self):
+        """The playing property."""
+        return self._playing
+
+    @playing.setter
+    def playing(self, value):
+        if self._playing == value:
+            return
+
+        self._playing = value
+        self.playing_changed.emit(value)
 
     # 音频回调
     def audio_callback(self, outdata, frames, time, status):
@@ -234,16 +247,18 @@ class PlayerWidget(QWidget):
             return
 
         start = int(self._position)
-        # target_data = self.data_slow if self.slow else self.data
-        target_data = self._data
         end = start + frames
-        if end > len(target_data):
-            outdata[:len(target_data)-start] = target_data[start:]
-            outdata[len(target_data)-start:] = 0
-            self._position = len(target_data)
+        if end > len(self._data):
+            outdata[:len(self._data)-start] = self._data[start:]
+            outdata[len(self._data)-start:] = 0
+            self._position = len(self._data)
             raise sd.CallbackStop()
+
         else:
-            outdata[:] = target_data[start:end]
+            if self._data.ndim == 1 and outdata.ndim == 2:
+                outdata[:, 0] = self._data[start:end]
+            elif self._data.ndim == 2 and outdata.ndim == 2:
+                outdata[:] = self._data[start:end]
             self._position += frames
 
         elapsed = start / self._samplerate
@@ -251,14 +266,16 @@ class PlayerWidget(QWidget):
 
     # 播放/暂停
     def toggle_play(self):
+        # logger.debug('toggle_play')
         if self._playing:
-            self._playing = False
+            self.playing = False
             assert self._stream
             self._paused_start = self._stream.time
 
         else:
             if self._stream is None:
                 channels = self._data.shape[1] if self._data.ndim > 1 else 1
+                # logger.debug(f'channels: {channels}')
                 self._stream = sd.OutputStream(
                     samplerate=self._samplerate,
                     channels=channels,
@@ -267,26 +284,91 @@ class PlayerWidget(QWidget):
                 )
                 self._stream.start()
 
-            self._playing = True
+            self.playing = True
 
     def stop(self):
         if self._stream is not None:
             self._stream.stop()
 
+class PlayerWidget(QWidget):
+    playing_progress = Signal(float, bool)
+    next_clicked = Signal(bool)
+    previous_clicked = Signal(bool)
+    current_clicked = Signal(bool)
+    def __init__(self):
+        super().__init__()
+        self._normal_stream = Stream()
+        self._slow_stream = Stream()
+        self._stream = self._normal_stream
+
+        layout = QHBoxLayout(self)
+        self._play_pause_button = CheckedButton('pause.svg', 'play_arrow.svg')
+        self._current_button = Button('refresh.svg')
+        self._next_button = Button('skip_next.svg')
+        self._previous_button = Button('skip_previous.svg')
+        self._mode_button = CheckedButton('speed_0_5.svg', '1x_mobiledata.svg')
+
+        layout.addWidget(self._mode_button)
+        layout.addWidget(self._play_pause_button)
+        layout.addWidget(self._current_button)
+        layout.addWidget(self._previous_button)
+        layout.addWidget(self._next_button)
+
+        self._play_pause_button.toggled.connect(self._on_play)
+        self._next_button.clicked.connect(lambda: self.next_clicked.emit(self._mode_button.isChecked()))
+        self._previous_button.clicked.connect(lambda: self.previous_clicked.emit(self._mode_button.isChecked()))
+        self._current_button.clicked.connect(lambda: self.current_clicked.emit(self._mode_button.isChecked()))
+
+        self._normal_stream.playing_progress.connect(lambda elapsed: self.playing_progress.emit(elapsed, False))
+        self._slow_stream.playing_progress.connect(lambda elapsed: self.playing_progress.emit(elapsed, True))
+
+        self._normal_stream.playing_changed.connect(self._on_playing_change)
+        self._slow_stream.playing_changed.connect(self._on_playing_change)
+
+    def _on_playing_change(self, flag):
+        self._play_pause_button.setChecked(flag)
+
+    def set_audio_file(self, value):
+        self._normal_stream.set_audio_file(value)
+        self._slow_stream.set_audio_file(str(get_slow_file(value)))
+
+    def play_at(self, sec, slow = False):
+        if slow:
+            self._stream = self._slow_stream
+
+        else:
+            self._stream = self._normal_stream
+
+        self._stream.play_at(sec)
+
+    def _on_play(self, checked):
+        if self._stream.playing != checked:
+            self._stream.toggle_play()
+
+    def stop(self):
+        self._normal_stream.stop()
+        self._slow_stream.stop()
+
+    def toggle_play(self):
+        self._stream.toggle_play()
+
 class ExtractLyricThread(QThread):
     finished2 = Signal(str, list)
     def run(self):
         self._lyric = audio_to_lyric(self._file_path)
+        to_slow_audio(Path(self._file_path))
         # logger.debug(f'lyrics: {self._lyric}')
         self.finished2.emit(self._file_path, self._lyric)
 
-    def extract(self, path):
+    def extract(self, path: str):
         self._file_path = path
         self.start()
 
 class MainWindow(QWidget):
     def __init__(self):
         super().__init__()
+        self.setWindowTitle('Learning English')
+        self.setWindowIcon(QIcon(url('book_ribbon.svg')))
 
         layout = QVBoxLayout(self)
         open_audio_button = QPushButton('打开音频')
@@ -301,8 +383,8 @@ class MainWindow(QWidget):
         # self._lyrics = audio_to_lyric('media/audio.mp3')
         self._audios = []
         self._lyrics = []
-        self._next_flag = False
-        self._lyric_widget= LyricWidget(self._lyrics)
+        self._segment_flag = False
+        self._lyric_widget= LyricWidget()
 
         layout.addWidget(self._progress)
         layout.addWidget(open_audio_button)
@@ -321,22 +403,44 @@ class MainWindow(QWidget):
         self._extract_lyric_thread.finished2.connect(self._on_extract_finished)
         self._player_widget.playing_progress.connect(self._on_playing)
         self._player_widget.next_clicked.connect(self._on_next)
+        self._player_widget.previous_clicked.connect(self._on_previous)
+        self._player_widget.current_clicked.connect(self._on_current)
 
         self.load()
 
-    def _on_next(self):
-        self._next_flag = True
+    def _on_current(self, slow):
+        self._segment_flag = True
+        segment = self._lyrics[self._lyric_widget.current_index]
+        start = segment['start'] * 2 if slow else segment['start']
+        self._player_widget.play_at(start, slow)
+
+    def _on_previous(self, slow):
+        self._segment_flag = True
+        self._lyric_widget.current_index -= 1
+        segment = self._lyrics[self._lyric_widget.current_index]
+        start = segment['start'] * 2 if slow else segment['start']
+        self._player_widget.play_at(start, slow)
+
+    def _on_next(self, slow):
+        self._segment_flag = True
         self._lyric_widget.current_index += 1
         segment = self._lyrics[self._lyric_widget.current_index]
-        self._player_widget.play_at(segment['start'])
+        start = segment['start'] * 2 if slow else segment['start']
+        self._player_widget.play_at(start, slow)
         # logger.debug(f'start: {segment["start"]}, current: {self._lyric_widget.current_index}')
 
-    def _on_playing(self, elapsed):
+    def _on_playing(self, elapsed, slow):
         if self._lyrics:
             seg = self._lyrics[self._lyric_widget.current_index]
             next_seg = self._lyrics[self._lyric_widget.current_index + 1]
-            self._last_end = seg['end'] + (next_seg['start'] - seg['end']) * 0.5
-            self._next_start = next_seg['start']
+
+            if slow:
+                self._last_end = next_seg['start'] + seg['end']
+                self._next_start = next_seg['start'] * 2
+
+            else:
+                self._last_end = (next_seg['start'] + seg['end']) * 0.5
+                self._next_start = next_seg['start']
 
             # logger.debug(f'seg end: {seg["end"]}, next start: {next_seg["start"]}')
 
@@ -346,10 +450,10 @@ class MainWindow(QWidget):
             # logger.debug(f'current_index: {self._lyric_widget.current_index}')
 
             if elapsed > self._last_end:
-                if self._next_flag:
+                if self._segment_flag:
                     self._player_widget.toggle_play()
                     # logger.debug(f'toggle_play')
-                    self._next_flag = False
+                    self._segment_flag = False
 
             if elapsed > self._next_start:
                 self._lyric_widget.current_index += 1
@@ -366,16 +470,16 @@ class MainWindow(QWidget):
         self._lyrics = lyrics
         self._lyric_widget.lyrics = lyrics
         self._audios.append((file, lyrics))
+        self._player_widget.set_audio_file(file)
 
     def _on_open_audio(self):
-        file, _ = QFileDialog.getOpenFileName(
+        self._file, _ = QFileDialog.getOpenFileName(
             self, "选择音频文件", ".", "Audio Files (*.mp3 *.wav *.flac)"
         )
-        if not file:
+        if not self._file:
             return
 
-        self._player_widget.audio_file = file
-        self._extract_lyric_thread.extract(file)
+        self._extract_lyric_thread.extract(self._file)
         self._progress.show()
 
     def save(self):
@@ -384,20 +488,29 @@ class MainWindow(QWidget):
             # json.dump(self._lyrics, f)
             json.dump(self._audios, f)
 
-
-
     def load(self):
         try:
             with open('audio.json', 'r', encoding='utf-8') as f:
                 self._audios = json.load(f)
                 if self._audios:
-                    self._player_widget.audio_file, self._lyrics = self._audios[0]
+                    audio_file, self._lyrics = self._audios[0]
+                    self._player_widget.set_audio_file(audio_file)
                     self._lyric_widget.lyrics = self._lyrics
 
         except: ...
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+
+
+    theme = 'light'
+    theme_name = theme  + '_theme.xml'
+    apply_stylesheet(
+        app
+        , theme=theme_name
+        , invert_secondary = False if theme == 'dark' else True
+        , css_file='style/mystyle.css'
+    )
 
     window = MainWindow()
     window.resize(500, 200)

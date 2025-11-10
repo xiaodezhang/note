@@ -1,0 +1,154 @@
+* {{
+    font-family: "Microsoft YaHei";
+    /*font-size: 9pt;*/
+}}
+
+QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {{
+    color: {QTMATERIAL_SECONDARYTEXTCOLOR};
+    height: 24px;
+}}
+
+QMenuBar QToolButton:hover,
+QMenuBar QToolButton:pressed,
+QMenuBar QToolButton {{
+    border-image: none;
+}}
+
+QMenuBar QToolButton:hover {{
+    background-color: {QTMATERIAL_SECONDARYLIGHTCOLOR};
+}}
+
+QPushButton.flat:disabled {{
+    /*color: #666666;*/
+    background-color: {QTMATERIAL_SECONDARYLIGHTCOLOR};
+    height: 20px;
+}}
+
+IconButton:focus {{
+    background-color: transparent;
+}}
+
+QToolButton {{
+    padding: 1px -8px 1px -8px;
+    background-color: transparent;
+    height: 23px;
+    width: 23px;
+}}
+
+QPushButton.flat {{
+    background-color: {QTMATERIAL_PRIMARYCOLOR};
+    color: {QTMATERIAL_SECONDARYDARKCOLOR};
+    height: 20px;
+    border-radius: 3px;
+}}
+
+QLCDNumber {{
+    background-color: transparent;
+    border: none;
+}}
+
+.bg-normal {{
+    background-color: {QTMATERIAL_SECONDARYCOLOR};
+}}
+
+.bg-dark {{
+    background-color: {QTMATERIAL_SECONDARYDARKCOLOR};
+}}
+
+.bg-light {{
+    background-color: {QTMATERIAL_SECONDARYLIGHTCOLOR};
+}}
+
+.bg-white{{
+    background-color: white;
+}}
+
+.selected {{
+    border: 1px solid {QTMATERIAL_SECONDARYLIGHTCOLOR};
+}}
+
+.unselected {{
+    border: 1px solid {QTMATERIAL_SECONDARYLIGHTCOLOR};
+}}
+
+.bordered {{
+    border: 1px solid {QTMATERIAL_SECONDARYLIGHTCOLOR};
+}}
+
+.unbordered {{
+    border: none;
+}}
+
+.square {{
+    border-radius: 0;
+}}
+
+.rounded {{
+    border-radius: 5px;
+}}
+
+.hoverable:hover {{
+    background-color: {QTMATERIAL_SECONDARYLIGHTCOLOR};
+}}
+
+.hoverable-border:hover {{
+    border: 1px solid {QTMATERIAL_PRIMARYCOLOR};
+}}
+
+.hoverable_on_hoverable:hover {{
+    background-color: {QTMATERIAL_SECONDARYCOLOR};
+}}
+
+.unhovered {{
+    background-color: transparent;
+}}
+
+.p-6 {{
+    padding: 12px;
+}}
+.p-5 {{
+    padding: 9px;
+}}
+.p-4 {{
+    padding: 7px;
+}}
+.p-3 {{
+    padding: 5px;
+}}
+.p-2 {{
+    padding: 3px;
+}}
+.p-1 {{
+    padding: 1px;
+}}
+
+.m-3 {{
+    padding: 5px;
+}}
+
+.fs-1 {{
+    font-size: 1pt;
+}}
+.fs-2 {{
+    font-size: 3pt;
+}}
+.fs-3 {{
+    font-size: 5pt;
+}}
+.fs-4 {{
+    font-size: 7pt;
+}}
+.fs-5 {{
+    font-size: 9pt;
+}}
+.fs-6 {{
+    font-size: 12pt;
+}}
+
+.fw-light {{
+    color: {QTMATERIAL_SECONDARYTEXTCOLOR}
+}}
+.fw-bold {{
+    font-weight: bold;
+}}
+
