@@ -6,7 +6,7 @@ import sounddevice as sd
 from loguru import logger
 from PySide6.QtWidgets import QApplication, QFileDialog, QHBoxLayout, QProgressBar, QPushButton, QSizePolicy, QToolButton, QWidget, QVBoxLayout
 from PySide6.QtCore import QObject, QSize, QThread, Qt, QTimer, Signal
-from PySide6.QtGui import QFont, QColor, QFontMetrics, QIcon, QPainter
+from PySide6.QtGui import QFont, QColor, QFontMetrics, QIcon, QPainter, QWheelEvent
 import sys
 import whisperx
 import torch
@@ -63,6 +63,7 @@ def audio_to_lyric(path):
     return aligned_result['segments']
 
 class LyricWidget(QWidget):
+    play_start_changed = Signal(float)
     def __init__(self, parent=None):
         super().__init__(parent)
         self._lyrics = []
@@ -74,6 +75,17 @@ class LyricWidget(QWidget):
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setMinimumHeight(self.line_height * self.visible_lines)
         self.setMinimumWidth(400)
+
+    def wheelEvent(self, event: QWheelEvent, /) -> None:
+        delta = event.angleDelta().y()
+        if delta > 0:
+            self.current_index -= 1
+
+        else:
+            self.current_index += 1
+
+        self.play_start_changed.emit(self._lyrics[self._current_index]['start'])
+        super().wheelEvent(event)
 
     @property
     def lyrics(self):
@@ -123,6 +135,9 @@ class LyricWidget(QWidget):
 
     @current_index.setter
     def current_index(self, value):
+        if self._current_index == value:
+            return
+
         self._current_index = value
         self.update()
 
@@ -218,11 +233,14 @@ class Stream(QObject):
         self._stream = None
         self._playing = False
         self._position = 0  # 当前播放样本索引
+
     def play_at(self, sec):
-        self._position = sec * self._samplerate
         if not self._playing:
-            # logger.debug('toggle_play')
+            self.set_second(sec)
             self.toggle_play()
+
+    def set_second(self, sec):
+        self._position = sec * self._samplerate
 
     @property
     def playing(self):
@@ -266,7 +284,6 @@ class Stream(QObject):
 
     # 播放/暂停
     def toggle_play(self):
-        # logger.debug('toggle_play')
         if self._playing:
             self.playing = False
             assert self._stream
@@ -280,7 +297,7 @@ class Stream(QObject):
                     samplerate=self._samplerate,
                     channels=channels,
                     callback=self.audio_callback,
-                    blocksize=2 ** 5
+                    # blocksize=2 ** 5
                 )
                 self._stream.start()
 
@@ -318,12 +335,20 @@ class PlayerWidget(QWidget):
         self._next_button.clicked.connect(lambda: self.next_clicked.emit(self._mode_button.isChecked()))
         self._previous_button.clicked.connect(lambda: self.previous_clicked.emit(self._mode_button.isChecked()))
         self._current_button.clicked.connect(lambda: self.current_clicked.emit(self._mode_button.isChecked()))
+        self._mode_button.toggled.connect(self._on_mode_toggle)
 
         self._normal_stream.playing_progress.connect(lambda elapsed: self.playing_progress.emit(elapsed, False))
         self._slow_stream.playing_progress.connect(lambda elapsed: self.playing_progress.emit(elapsed, True))
 
         self._normal_stream.playing_changed.connect(self._on_playing_change)
         self._slow_stream.playing_changed.connect(self._on_playing_change)
+
+    def _on_mode_toggle(self, checked):
+        self._stream = self._slow_stream if checked else self._normal_stream
+
+    def set_play_start(self, sec):
+        self._normal_stream.set_second(sec)
+        self._slow_stream.set_second(sec)
 
     def _on_playing_change(self, flag):
         self._play_pause_button.setChecked(flag)
@@ -405,8 +430,12 @@ class MainWindow(QWidget):
         self._player_widget.next_clicked.connect(self._on_next)
         self._player_widget.previous_clicked.connect(self._on_previous)
         self._player_widget.current_clicked.connect(self._on_current)
+        self._lyric_widget.play_start_changed.connect(self._on_play_start_change)
 
         self.load()
+
+    def _on_play_start_change(self, value):
+        self._player_widget.set_play_start(value)
 
     def _on_current(self, slow):
         self._segment_flag = True
@@ -432,6 +461,7 @@ class MainWindow(QWidget):
     def _on_playing(self, elapsed, slow):
         if self._lyrics:
             current = self._lyric_widget.current_index
+            # logger.debug(f'current: {current}')
             if current < len(self._lyrics) - 1:
                 seg = self._lyrics[current]
                 next_seg = self._lyrics[self._lyric_widget.current_index + 1]
