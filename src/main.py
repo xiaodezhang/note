@@ -42,7 +42,7 @@ def audio_to_lyric(path):
 
     # 2. 加载 Whisper 模型（选择 base / small / medium / large-v2）
     compute_type = "float16" if device.startswith("cuda") else "float32"
-    model = whisperx.load_model("small", device=device, compute_type=compute_type)
+    model = whisperx.load_model("small.en", device=device, compute_type=compute_type)
 
     # 3. 执行语音识别
     result = model.transcribe(path)
