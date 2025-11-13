@@ -1,3 +1,4 @@
+import pyperclip
 import json
 import librosa
 from pathlib import Path
@@ -84,7 +85,9 @@ class LyricWidget(QWidget):
         else:
             self.current_index += 1
 
-        self.play_start_changed.emit(self._lyrics[self._current_index]['start'])
+        if self._current_index < len(self._lyrics) - 1:
+            self.play_start_changed.emit(self._lyrics[self._current_index]['start'])
+
         super().wheelEvent(event)
 
     @property
@@ -150,6 +153,9 @@ class LyricWidget(QWidget):
         self._calculate_overlays()
 
         if self._overlays:
+            if self._current_index > len(self._overlays) - 1:
+                return
+
             current_overlay = self._overlays[self._current_index]
             for i, (line, overlay) in enumerate(zip(self._lyrics, self._overlays)):
                 y = (overlay - current_overlay) * self.line_height + self.height() // 2
@@ -286,8 +292,6 @@ class Stream(QObject):
     def toggle_play(self):
         if self._playing:
             self.playing = False
-            assert self._stream
-            self._paused_start = self._stream.time
 
         else:
             if self._stream is None:
@@ -297,7 +301,7 @@ class Stream(QObject):
                     samplerate=self._samplerate,
                     channels=channels,
                     callback=self.audio_callback,
-                    # blocksize=2 ** 5
+                    blocksize=2 ** 5
                 )
                 self._stream.start()
 
@@ -312,6 +316,7 @@ class PlayerWidget(QWidget):
     next_clicked = Signal(bool)
     previous_clicked = Signal(bool)
     current_clicked = Signal(bool)
+    copy_clicked = Signal()
     def __init__(self):
         super().__init__()
         self._normal_stream = Stream()
@@ -324,18 +329,21 @@ class PlayerWidget(QWidget):
         self._next_button = Button('skip_next.svg')
         self._previous_button = Button('skip_previous.svg')
         self._mode_button = CheckedButton('speed_0_5.svg', '1x_mobiledata.svg')
+        self._copy_button = Button('content_copy.svg')
 
         layout.addWidget(self._mode_button)
         layout.addWidget(self._play_pause_button)
         layout.addWidget(self._current_button)
         layout.addWidget(self._previous_button)
         layout.addWidget(self._next_button)
+        layout.addWidget(self._copy_button)
 
         self._play_pause_button.toggled.connect(self._on_play)
         self._next_button.clicked.connect(lambda: self.next_clicked.emit(self._mode_button.isChecked()))
         self._previous_button.clicked.connect(lambda: self.previous_clicked.emit(self._mode_button.isChecked()))
         self._current_button.clicked.connect(lambda: self.current_clicked.emit(self._mode_button.isChecked()))
         self._mode_button.toggled.connect(self._on_mode_toggle)
+        self._copy_button.clicked.connect(self.copy_clicked)
 
         self._normal_stream.playing_progress.connect(lambda elapsed: self.playing_progress.emit(elapsed, False))
         self._slow_stream.playing_progress.connect(lambda elapsed: self.playing_progress.emit(elapsed, True))
@@ -430,9 +438,18 @@ class MainWindow(QWidget):
         self._player_widget.next_clicked.connect(self._on_next)
         self._player_widget.previous_clicked.connect(self._on_previous)
         self._player_widget.current_clicked.connect(self._on_current)
+        self._player_widget.copy_clicked.connect(self._on_copy)
+
         self._lyric_widget.play_start_changed.connect(self._on_play_start_change)
 
         self.load()
+
+    def _on_copy(self):
+        try:
+            lyric = self._lyric_widget.lyrics[self._lyric_widget.current_index]
+            pyperclip.copy(lyric['text'])
+
+        except: ...
 
     def _on_play_start_change(self, value):
         self._player_widget.set_play_start(value)
@@ -462,25 +479,28 @@ class MainWindow(QWidget):
         if self._lyrics:
             current = self._lyric_widget.current_index
             # logger.debug(f'current: {current}')
-            if current < len(self._lyrics) - 1:
-                seg = self._lyrics[current]
-                next_seg = self._lyrics[self._lyric_widget.current_index + 1]
+            if current < len(self._lyrics):
+                seg_end = self._lyrics[current]['end']
 
-                if slow:
-                    self._last_end = next_seg['start'] + seg['end']
-                    self._next_start = next_seg['start'] * 2
+                if current + 1 < len(self._lyrics):
+                    next_start = self._lyrics[current + 1]['start']
 
                 else:
-                    self._last_end = (next_seg['start'] + seg['end']) * 0.5
-                    self._next_start = next_seg['start']
+                    next_start = seg_end
 
-                if elapsed > self._last_end:
+                last_end = (next_start + seg_end) / 2
+
+                if slow:
+                    last_end *= 2
+                    next_start *= 2
+
+                if elapsed > last_end:
                     if self._segment_flag:
                         self._player_widget.toggle_play()
                         # logger.debug(f'toggle_play')
                         self._segment_flag = False
 
-                if elapsed > self._next_start:
+                if elapsed > next_start:
                     self._lyric_widget.current_index += 1
 
             else:
@@ -536,7 +556,7 @@ if __name__ == "__main__":
     )
 
     window = MainWindow()
-    window.resize(500, 200)
+    window.resize(700, 500)
     window.show()
 
     app.exec()
